@@ -89,7 +89,11 @@ export default function ChatPage() {
           }
 
           if (line.startsWith('data:')) {
-            state.data.push(line.slice(5).trimStart()) // ★ data: を剥がす
+            // data: の後の部分を取得（スペースがあってもなくてもOK）
+            const dataContent = line.slice(5).trimStart() // ★ data: を剥がす
+            if (dataContent) {
+              state.data.push(dataContent)
+            }
             continue
           }
 
