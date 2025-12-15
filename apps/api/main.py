@@ -13,29 +13,26 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from sse_starlette.sse import EventSourceResponse
 from pydantic import BaseModel
-from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, Float
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy import Column, Integer, String, Text, DateTime, Float
+from sqlalchemy.orm import Session
 from datetime import datetime
-import jwt
+from jose import jwt
 
 try:
     from .langgraph_agent import LangGraphAgent
     from .rag import RAGSystem
     from .auth import verify_token, get_current_user_id
-    from .database import get_db, init_db
+    from .database import get_db, init_db, Base
 except ImportError:
     from langgraph_agent import LangGraphAgent
     from rag import RAGSystem
     from auth import verify_token, get_current_user_id
-    from database import get_db, init_db
+    from database import get_db, init_db, Base
 
 # Environment
 AUTH_MODE = os.getenv("AUTH_MODE", "demo")
 JWT_SECRET = os.getenv("JWT_SECRET", "demo-secret")
 EMBEDDING_MODE = os.getenv("EMBEDDING_MODE", "demo")
-
-Base = declarative_base()
 
 # Database Models
 class ChatSession(Base):
@@ -184,9 +181,9 @@ async def ask(
                     result = chunk["data"]
             
             if result:
-                    # 回答保存
-                    import json as json_lib
-                    citations_json = json_lib.dumps(result["citations"], ensure_ascii=False)
+                # 回答保存
+                import json as json_lib
+                citations_json = json_lib.dumps(result["citations"], ensure_ascii=False)
                 msg = ChatMessage(
                     session_id=session_id,
                     role="assistant",

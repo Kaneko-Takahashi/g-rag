@@ -2,7 +2,8 @@
 認証モジュール（DEMO/将来拡張用）
 """
 import os
-import jwt
+from jose import jwt
+from jose.exceptions import ExpiredSignatureError, JWTError
 from typing import Optional
 from fastapi import HTTPException, Header
 
@@ -14,9 +15,9 @@ def verify_token(token: str) -> dict:
     try:
         payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
         return payload
-    except jwt.ExpiredSignatureError:
+    except ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token expired")
-    except jwt.InvalidTokenError:
+    except JWTError:
         raise HTTPException(status_code=401, detail="Invalid token")
 
 def get_current_user_id(authorization: Optional[str] = None) -> str:
