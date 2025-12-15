@@ -112,11 +112,20 @@ export default function ChatPage() {
         if (done) break
 
         const chunkText = decoder.decode(value, { stream: true })
+        
+        // デバッグ: 生のチャンクを確認
+        if (chunkText.includes('data:') || chunkText.includes('event:')) {
+          console.log('Raw chunk:', JSON.stringify(chunkText.substring(0, 200)))
+        }
+        
         const events = sseParseLines(state, chunkText)
 
         for (const e of events) {
           const ev = e.event
           const data = e.data
+
+          // デバッグ: パース結果を確認
+          console.log('Parsed event:', ev, 'data:', JSON.stringify(data.substring(0, 50)))
 
           if (data === '[DONE]' || ev === 'done') {
             // 終了処理
@@ -143,7 +152,15 @@ export default function ChatPage() {
 
           // ★本文には data だけを追記（event/data: は一切入れない）
           if (data) {
-            appendAssistantText(data)
+            // 念のため、dataの中に"data:"や"event:"が含まれていたら除去
+            let cleanData = data
+            // data: や event: を除去（複数回出現する可能性がある）
+            cleanData = cleanData.replace(/data:\s*/g, '')
+            cleanData = cleanData.replace(/event:\s*/g, '')
+            
+            if (cleanData && cleanData !== '[DONE]') {
+              appendAssistantText(cleanData)
+            }
           }
         }
       }
@@ -168,7 +185,14 @@ export default function ChatPage() {
             }
           } else {
             // ★本文には data だけを追記
-            appendAssistantText(data)
+            // 念のため、dataの中に"data:"や"event:"が含まれていたら除去
+            let cleanData = data
+            cleanData = cleanData.replace(/data:\s*/g, '')
+            cleanData = cleanData.replace(/event:\s*/g, '')
+            
+            if (cleanData && cleanData !== '[DONE]') {
+              appendAssistantText(cleanData)
+            }
           }
         }
       }
