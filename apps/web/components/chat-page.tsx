@@ -48,44 +48,6 @@ export default function ChatPage() {
       const reader = res.body?.getReader()
       if (!reader) throw new Error('Failed to get reader')
       
-      const decoder = new TextDecoder('utf-8')
-      let buffer = ''
-      
-      // SSEフレームをパースする関数
-      function parseSSEFrame(frame: string): { event?: string; data: string } | null {
-        const normalized = frame.replace(/\r\n/g, '\n')
-        const lines = normalized.split('\n')
-        
-        let event: string | undefined
-        const dataLines: string[] = []
-        
-        for (const line of lines) {
-          const trimmedLine = line.trim()
-          if (!trimmedLine) continue
-          
-          // event: の処理
-          if (trimmedLine.startsWith('event:')) {
-            event = trimmedLine.slice('event:'.length).trim()
-          } 
-          // data: の処理（スペースがあってもなくてもOK）
-          else if (trimmedLine.startsWith('data:')) {
-            // data: の後の部分を取得
-            let dataContent = trimmedLine.slice('data:'.length)
-            // 先頭のスペースを除去
-            dataContent = dataContent.trimStart()
-            // もしdataContentの中にまだ"data:"が含まれていたら除去（念のため）
-            dataContent = dataContent.replace(/^data:\s*/g, '')
-            if (dataContent) {
-              dataLines.push(dataContent)
-            }
-          }
-        }
-        
-        if (!event && dataLines.length === 0) return null
-        const joinedData = dataLines.join('\n')
-        return { event, data: joinedData }
-      }
-      
       // アシスタントメッセージにテキストを追記する関数
       const appendAssistantText = (text: string) => {
         setMessages(prev => {
@@ -96,97 +58,166 @@ export default function ChatPage() {
           return newMessages
         })
       }
-      
+
+      // SSEのdataが引用JSONっぽいか判定（保険）
+      const looksLikeCitationsJson = (s: string): boolean => {
+        try {
+          const v = JSON.parse(s)
+          return Array.isArray(v) && v.length > 0 && typeof v[0]?.snippet === 'string'
+        } catch {
+          return false
+        }
+      }
+
+      const looksLikeMetricsJson = (s: string): boolean => {
+        try {
+          const v = JSON.parse(s)
+          return v && typeof v === 'object' && ('latency_ms' in v || 'p95_ms' in v || 'tokens' in v)
+        } catch {
+          return false
+        }
+      }
+
+      // ストリーム読み取りループ
+      let buffer = ''
+      const decoder = new TextDecoder('utf-8')
+
       while (true) {
         const { value, done } = await reader.read()
         if (done) break
-        
+
         buffer += decoder.decode(value, { stream: true })
-        
-        let idx: number
-        while ((idx = buffer.indexOf('\n\n')) !== -1) {
+        buffer = buffer.replace(/\r\n/g, '\n') // Windows改行を正規化
+
+        // フレーム（空行区切り）で処理
+        while (true) {
+          const idx = buffer.indexOf('\n\n')
+          if (idx === -1) break
+
           const frame = buffer.slice(0, idx)
           buffer = buffer.slice(idx + 2)
-          
-          // デバッグ: フレームの内容を確認
-          if (frame.includes('data:')) {
-            console.log('Raw frame:', JSON.stringify(frame))
+
+          let eventName = ''
+          const dataLines: string[] = []
+
+          for (const rawLine of frame.split('\n')) {
+            const line = rawLine.trim() // 念のためtrim
+            if (!line) continue
+
+            if (line.startsWith('event:')) {
+              eventName = line.slice('event:'.length).trim()
+              continue // 本文に入れない
+            }
+
+            if (line.startsWith('data:')) {
+              dataLines.push(line.slice('data:'.length).trimStart())
+              continue
+            }
+
+            // その他の行は無視（本文に入れない）
           }
-          
-          const parsed = parseSSEFrame(frame)
-          if (!parsed) continue
-          
-          // デバッグ: パース結果を確認
-          if (parsed.data && parsed.data.includes('data:')) {
-            console.log('Parsed data contains "data:":', JSON.stringify(parsed.data))
+
+          const data = dataLines.join('\n')
+
+          // 終了
+          if (eventName === 'done' || data === '[DONE]') {
+            break
           }
-          
-          const kind = parsed.event ?? 'token'
-          
-          if (kind === 'citations') {
+
+          // citations / metrics（eventが付いてるケース）
+          if (eventName === 'citations') {
             try {
-              setCitations(JSON.parse(parsed.data))
+              setCitations(JSON.parse(data))
             } catch (e) {
               console.error('Failed to parse citations:', e)
             }
             continue
           }
-          if (kind === 'metrics') {
+          if (eventName === 'metrics') {
             try {
-              setMetrics(JSON.parse(parsed.data))
+              setMetrics(JSON.parse(data))
             } catch (e) {
               console.error('Failed to parse metrics:', e)
             }
             continue
           }
-          if (kind === 'done') {
-            break
-          }
-          
-          // token/message/未指定 → 本文に「dataだけ」追記
-          // parsed.dataには既にdata:プレフィックスは含まれていないはず
-          if (parsed.data && parsed.data !== '[DONE]') {
-            // 念のため、もしdata:が含まれていたら除去（複数行対応）
-            let cleanData = parsed.data
-            // 行単位でdata:プレフィックスを除去
-            cleanData = cleanData.split('\n').map(line => {
-              const trimmed = line.trim()
-              if (trimmed.startsWith('data:')) {
-                return trimmed.slice('data:'.length).trimStart()
-              }
-              return line
-            }).join('\n')
-            
-            if (cleanData && cleanData !== '[DONE]') {
-              appendAssistantText(cleanData)
+
+          // 保険：event無しでJSONが飛んできたケース
+          if (looksLikeCitationsJson(data)) {
+            try {
+              setCitations(JSON.parse(data))
+            } catch (e) {
+              console.error('Failed to parse citations (fallback):', e)
             }
+            continue
+          }
+          if (looksLikeMetricsJson(data)) {
+            try {
+              setMetrics(JSON.parse(data))
+            } catch (e) {
+              console.error('Failed to parse metrics (fallback):', e)
+            }
+            continue
+          }
+
+          // ここだけ本文に追記
+          if (data) {
+            appendAssistantText(data)
           }
         }
       }
-      
+
       // 残りのバッファを処理（最後の不完全なフレーム）
       if (buffer.trim()) {
-        const parsed = parseSSEFrame(buffer)
-        if (parsed) {
-          const kind = parsed.event ?? 'token'
-          
-          if (kind === 'citations') {
+        let eventName = ''
+        const dataLines: string[] = []
+
+        for (const rawLine of buffer.split('\n')) {
+          const line = rawLine.trim()
+          if (!line) continue
+
+          if (line.startsWith('event:')) {
+            eventName = line.slice('event:'.length).trim()
+            continue
+          }
+
+          if (line.startsWith('data:')) {
+            dataLines.push(line.slice('data:'.length).trimStart())
+            continue
+          }
+        }
+
+        const data = dataLines.join('\n')
+
+        if (data && data !== '[DONE]') {
+          if (eventName === 'citations') {
             try {
-              setCitations(JSON.parse(parsed.data))
+              setCitations(JSON.parse(data))
             } catch (e) {
               console.error('Failed to parse citations:', e)
             }
-          } else if (kind === 'metrics') {
+          } else if (eventName === 'metrics') {
             try {
-              setMetrics(JSON.parse(parsed.data))
+              setMetrics(JSON.parse(data))
             } catch (e) {
               console.error('Failed to parse metrics:', e)
             }
-          } else if (kind !== 'done' && parsed.data && parsed.data !== '[DONE]') {
-            // 念のため、もしdata:が含まれていたら除去
-            const cleanData = parsed.data.replace(/^data:\s*/g, '')
-            if (cleanData) {
-              appendAssistantText(cleanData)
+          } else if (eventName !== 'done') {
+            // 保険：event無しでJSONが飛んできたケース
+            if (looksLikeCitationsJson(data)) {
+              try {
+                setCitations(JSON.parse(data))
+              } catch (e) {
+                console.error('Failed to parse citations (fallback):', e)
+              }
+            } else if (looksLikeMetricsJson(data)) {
+              try {
+                setMetrics(JSON.parse(data))
+              } catch (e) {
+                console.error('Failed to parse metrics (fallback):', e)
+              }
+            } else {
+              appendAssistantText(data)
             }
           }
         }
