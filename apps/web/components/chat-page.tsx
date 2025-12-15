@@ -48,124 +48,100 @@ export default function ChatPage() {
       const reader = res.body?.getReader()
       if (!reader) throw new Error('Failed to get reader')
       
-      const decoder = new TextDecoder()
+      const decoder = new TextDecoder('utf-8')
       let buffer = ''
-      let streamDone = false
       
-      while (!streamDone) {
-        const { done, value } = await reader.read()
-        if (done) {
-          streamDone = true
-          break
+      // SSEフレームをパースする関数
+      function parseSSEFrame(frame: string): { event?: string; data: string } | null {
+        const normalized = frame.replace(/\r\n/g, '\n')
+        const lines = normalized.split('\n')
+        
+        let event: string | undefined
+        const dataLines: string[] = []
+        
+        for (const line of lines) {
+          if (line.startsWith('event:')) event = line.slice('event:'.length).trim()
+          if (line.startsWith('data:')) dataLines.push(line.slice('data:'.length).trimStart())
         }
+        
+        if (!event && dataLines.length === 0) return null
+        return { event, data: dataLines.join('\n') }
+      }
+      
+      // アシスタントメッセージにテキストを追記する関数
+      const appendAssistantText = (text: string) => {
+        setMessages(prev => {
+          const newMessages = [...prev]
+          if (newMessages[assistantMessageId]) {
+            newMessages[assistantMessageId].content += text
+          }
+          return newMessages
+        })
+      }
+      
+      while (true) {
+        const { value, done } = await reader.read()
+        if (done) break
         
         buffer += decoder.decode(value, { stream: true })
         
-        // SSEフレームを \n\n で分割
-        const frames = buffer.split('\n\n')
-        // 最後の不完全なフレームはバッファに残す
-        buffer = frames.pop() || ''
-        
-        // 各フレームを処理
-        for (const frame of frames) {
-          if (!frame.trim()) continue
+        let idx: number
+        while ((idx = buffer.indexOf('\n\n')) !== -1) {
+          const frame = buffer.slice(0, idx)
+          buffer = buffer.slice(idx + 2)
           
-          let event: string | null = null
-          const dataLines: string[] = []
+          const parsed = parseSSEFrame(frame)
+          if (!parsed) continue
           
-          // フレーム内の各行を解析
-          const lines = frame.split('\n')
-          for (const line of lines) {
-            if (line.startsWith('event: ')) {
-              event = line.slice(7).trim()
-            } else if (line.startsWith('data: ')) {
-              // data: の後の部分を取得（複数行のdataに対応）
-              dataLines.push(line.slice(6))
-            }
-          }
+          const kind = parsed.event ?? 'token'
           
-          // data を連結（複数行data対応）
-          const data = dataLines.join('\n')
-          
-          if (!data || data === '[DONE]') {
-            if (event === 'done') {
-              streamDone = true
-              break
-            }
-            continue
-          }
-          
-          // event に応じて処理
-          if (event === 'citations') {
+          if (kind === 'citations') {
             try {
-              const citationsData = JSON.parse(data)
-              setCitations(citationsData)
+              setCitations(JSON.parse(parsed.data))
             } catch (e) {
               console.error('Failed to parse citations:', e)
             }
-          } else if (event === 'metrics') {
+            continue
+          }
+          if (kind === 'metrics') {
             try {
-              const metricsData = JSON.parse(data)
-              setMetrics(metricsData)
+              setMetrics(JSON.parse(parsed.data))
             } catch (e) {
               console.error('Failed to parse metrics:', e)
             }
-          } else if (event === 'done') {
-            streamDone = true
+            continue
+          }
+          if (kind === 'done') {
             break
-          } else {
-            // event が "message" または "token" または event未指定の data は、チャット本文に追記
-            // "data:"文字は表示しない（既にdata変数には含まれていない）
-            setMessages(prev => {
-              const newMessages = [...prev]
-              if (newMessages[assistantMessageId]) {
-                newMessages[assistantMessageId].content += data
-              }
-              return newMessages
-            })
+          }
+          
+          // token/message/未指定 → 本文に「dataだけ」追記
+          if (parsed.data && parsed.data !== '[DONE]') {
+            appendAssistantText(parsed.data)
           }
         }
       }
       
       // 残りのバッファを処理（最後の不完全なフレーム）
       if (buffer.trim()) {
-        let event: string | null = null
-        const dataLines: string[] = []
-        
-        const lines = buffer.split('\n')
-        for (const line of lines) {
-          if (line.startsWith('event: ')) {
-            event = line.slice(7).trim()
-          } else if (line.startsWith('data: ')) {
-            dataLines.push(line.slice(6))
-          }
-        }
-        
-        const data = dataLines.join('\n')
-        
-        if (data && data !== '[DONE]') {
-          if (event === 'citations') {
+        const parsed = parseSSEFrame(buffer)
+        if (parsed) {
+          const kind = parsed.event ?? 'token'
+          
+          if (kind === 'citations') {
             try {
-              const citationsData = JSON.parse(data)
-              setCitations(citationsData)
+              setCitations(JSON.parse(parsed.data))
             } catch (e) {
               console.error('Failed to parse citations:', e)
             }
-          } else if (event === 'metrics') {
+          } else if (kind === 'metrics') {
             try {
-              const metricsData = JSON.parse(data)
-              setMetrics(metricsData)
+              setMetrics(JSON.parse(parsed.data))
             } catch (e) {
               console.error('Failed to parse metrics:', e)
             }
-          } else if (!event || event === 'message' || event === 'token') {
-            setMessages(prev => {
-              const newMessages = [...prev]
-              if (newMessages[assistantMessageId]) {
-                newMessages[assistantMessageId].content += data
-              }
-              return newMessages
-            })
+          } else if (kind !== 'done' && parsed.data && parsed.data !== '[DONE]') {
+            appendAssistantText(parsed.data)
           }
         }
       }
