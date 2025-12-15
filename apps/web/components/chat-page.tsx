@@ -54,45 +54,111 @@ export default function ChatPage() {
         if (done) break
         
         buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split('\n')
-        buffer = lines.pop() || ''
         
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const data = line.slice(6)
-            if (data && data !== '[DONE]') {
-              setMessages(prev => {
-                const newMessages = [...prev]
-                if (newMessages[assistantMessageId]) {
-                  newMessages[assistantMessageId].content += data
-                }
-                return newMessages
-              })
+        // SSEフレームを \n\n で分割
+        const frames = buffer.split('\n\n')
+        // 最後の不完全なフレームはバッファに残す
+        buffer = frames.pop() || ''
+        
+        // 各フレームを処理
+        for (const frame of frames) {
+          if (!frame.trim()) continue
+          
+          let event: string | null = null
+          const dataLines: string[] = []
+          
+          // フレーム内の各行を解析
+          const lines = frame.split('\n')
+          for (const line of lines) {
+            if (line.startsWith('event: ')) {
+              event = line.slice(7).trim()
+            } else if (line.startsWith('data: ')) {
+              // data: の後の部分を取得（複数行のdataに対応）
+              dataLines.push(line.slice(6))
             }
-          } else if (line.startsWith('event: citations')) {
-            // 次の行を待つ
+          }
+          
+          // data を連結（複数行data対応）
+          const data = dataLines.join('\n')
+          
+          if (!data || data === '[DONE]') {
+            if (event === 'done') {
+              break
+            }
             continue
-          } else if (line.startsWith('event: metrics')) {
-            // 次の行を待つ
-            continue
+          }
+          
+          // event に応じて処理
+          if (event === 'citations') {
+            try {
+              const citationsData = JSON.parse(data)
+              setCitations(citationsData)
+            } catch (e) {
+              console.error('Failed to parse citations:', e)
+            }
+          } else if (event === 'metrics') {
+            try {
+              const metricsData = JSON.parse(data)
+              setMetrics(metricsData)
+            } catch (e) {
+              console.error('Failed to parse metrics:', e)
+            }
+          } else if (event === 'done') {
+            break
+          } else {
+            // event が "message" または "token" または event未指定の data は、チャット本文に追記
+            // "data:"文字は表示しない（既にdata変数には含まれていない）
+            setMessages(prev => {
+              const newMessages = [...prev]
+              if (newMessages[assistantMessageId]) {
+                newMessages[assistantMessageId].content += data
+              }
+              return newMessages
+            })
           }
         }
       }
       
-      // 最終データ取得
-      const finalLines = buffer.split('\n')
-      for (let i = 0; i < finalLines.length; i++) {
-        const line = finalLines[i]
-        if (line.startsWith('data: ') && finalLines[i - 1]?.startsWith('event: citations')) {
-          try {
-            const data = JSON.parse(line.slice(6))
-            setCitations(data)
-          } catch {}
-        } else if (line.startsWith('data: ') && finalLines[i - 1]?.startsWith('event: metrics')) {
-          try {
-            const data = JSON.parse(line.slice(6))
-            setMetrics(data)
-          } catch {}
+      // 残りのバッファを処理（最後の不完全なフレーム）
+      if (buffer.trim()) {
+        let event: string | null = null
+        const dataLines: string[] = []
+        
+        const lines = buffer.split('\n')
+        for (const line of lines) {
+          if (line.startsWith('event: ')) {
+            event = line.slice(7).trim()
+          } else if (line.startsWith('data: ')) {
+            dataLines.push(line.slice(6))
+          }
+        }
+        
+        const data = dataLines.join('\n')
+        
+        if (data && data !== '[DONE]') {
+          if (event === 'citations') {
+            try {
+              const citationsData = JSON.parse(data)
+              setCitations(citationsData)
+            } catch (e) {
+              console.error('Failed to parse citations:', e)
+            }
+          } else if (event === 'metrics') {
+            try {
+              const metricsData = JSON.parse(data)
+              setMetrics(metricsData)
+            } catch (e) {
+              console.error('Failed to parse metrics:', e)
+            }
+          } else if (!event || event === 'message' || event === 'token') {
+            setMessages(prev => {
+              const newMessages = [...prev]
+              if (newMessages[assistantMessageId]) {
+                newMessages[assistantMessageId].content += data
+              }
+              return newMessages
+            })
+          }
         }
       }
     } catch (err: any) {
