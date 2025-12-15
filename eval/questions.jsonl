@@ -1,0 +1,11 @@
+{"question": "What is artificial intelligence?", "expected_topics": ["AI", "machine learning", "computer science"]}
+{"question": "How does RAG work?", "expected_topics": ["RAG", "retrieval", "generation"]}
+{"question": "What is LangGraph?", "expected_topics": ["LangGraph", "graph", "workflow"]}
+{"question": "Explain machine learning", "expected_topics": ["machine learning", "AI", "neural networks"]}
+{"question": "What are the benefits of RAG?", "expected_topics": ["RAG", "accuracy", "knowledge base"]}
+{"question": "How to build a chatbot?", "expected_topics": ["chatbot", "LLM", "conversation"]}
+{"question": "What is vector similarity?", "expected_topics": ["vector", "similarity", "embedding"]}
+{"question": "Explain deep learning", "expected_topics": ["deep learning", "neural networks", "AI"]}
+{"question": "What is a knowledge base?", "expected_topics": ["knowledge base", "database", "information"]}
+{"question": "How does embedding work?", "expected_topics": ["embedding", "vector", "transformation"]}
+
