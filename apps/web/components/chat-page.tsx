@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef } from 'react'
 import Sidebar from './sidebar'
 import ChatInput from './chat-input'
 import ChatMessages from './chat-messages'
@@ -46,12 +46,18 @@ export default function ChatPage() {
       if (!res.ok) throw new Error('Request failed')
       
       const reader = res.body?.getReader()
+      if (!reader) throw new Error('Failed to get reader')
+      
       const decoder = new TextDecoder()
       let buffer = ''
+      let streamDone = false
       
-      while (reader) {
+      while (!streamDone) {
         const { done, value } = await reader.read()
-        if (done) break
+        if (done) {
+          streamDone = true
+          break
+        }
         
         buffer += decoder.decode(value, { stream: true })
         
@@ -83,6 +89,7 @@ export default function ChatPage() {
           
           if (!data || data === '[DONE]') {
             if (event === 'done') {
+              streamDone = true
               break
             }
             continue
@@ -104,6 +111,7 @@ export default function ChatPage() {
               console.error('Failed to parse metrics:', e)
             }
           } else if (event === 'done') {
+            streamDone = true
             break
           } else {
             // event が "message" または "token" または event未指定の data は、チャット本文に追記
