@@ -60,12 +60,30 @@ export default function ChatPage() {
         const dataLines: string[] = []
         
         for (const line of lines) {
-          if (line.startsWith('event:')) event = line.slice('event:'.length).trim()
-          if (line.startsWith('data:')) dataLines.push(line.slice('data:'.length).trimStart())
+          const trimmedLine = line.trim()
+          if (!trimmedLine) continue
+          
+          // event: の処理
+          if (trimmedLine.startsWith('event:')) {
+            event = trimmedLine.slice('event:'.length).trim()
+          } 
+          // data: の処理（スペースがあってもなくてもOK）
+          else if (trimmedLine.startsWith('data:')) {
+            // data: の後の部分を取得
+            let dataContent = trimmedLine.slice('data:'.length)
+            // 先頭のスペースを除去
+            dataContent = dataContent.trimStart()
+            // もしdataContentの中にまだ"data:"が含まれていたら除去（念のため）
+            dataContent = dataContent.replace(/^data:\s*/g, '')
+            if (dataContent) {
+              dataLines.push(dataContent)
+            }
+          }
         }
         
         if (!event && dataLines.length === 0) return null
-        return { event, data: dataLines.join('\n') }
+        const joinedData = dataLines.join('\n')
+        return { event, data: joinedData }
       }
       
       // アシスタントメッセージにテキストを追記する関数
@@ -90,8 +108,18 @@ export default function ChatPage() {
           const frame = buffer.slice(0, idx)
           buffer = buffer.slice(idx + 2)
           
+          // デバッグ: フレームの内容を確認
+          if (frame.includes('data:')) {
+            console.log('Raw frame:', JSON.stringify(frame))
+          }
+          
           const parsed = parseSSEFrame(frame)
           if (!parsed) continue
+          
+          // デバッグ: パース結果を確認
+          if (parsed.data && parsed.data.includes('data:')) {
+            console.log('Parsed data contains "data:":', JSON.stringify(parsed.data))
+          }
           
           const kind = parsed.event ?? 'token'
           
@@ -116,8 +144,22 @@ export default function ChatPage() {
           }
           
           // token/message/未指定 → 本文に「dataだけ」追記
+          // parsed.dataには既にdata:プレフィックスは含まれていないはず
           if (parsed.data && parsed.data !== '[DONE]') {
-            appendAssistantText(parsed.data)
+            // 念のため、もしdata:が含まれていたら除去（複数行対応）
+            let cleanData = parsed.data
+            // 行単位でdata:プレフィックスを除去
+            cleanData = cleanData.split('\n').map(line => {
+              const trimmed = line.trim()
+              if (trimmed.startsWith('data:')) {
+                return trimmed.slice('data:'.length).trimStart()
+              }
+              return line
+            }).join('\n')
+            
+            if (cleanData && cleanData !== '[DONE]') {
+              appendAssistantText(cleanData)
+            }
           }
         }
       }
@@ -141,7 +183,11 @@ export default function ChatPage() {
               console.error('Failed to parse metrics:', e)
             }
           } else if (kind !== 'done' && parsed.data && parsed.data !== '[DONE]') {
-            appendAssistantText(parsed.data)
+            // 念のため、もしdata:が含まれていたら除去
+            const cleanData = parsed.data.replace(/^data:\s*/g, '')
+            if (cleanData) {
+              appendAssistantText(cleanData)
+            }
           }
         }
       }
