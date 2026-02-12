@@ -158,7 +158,16 @@ export default function ChatPage() {
             cleanData = cleanData.replace(/data:\s*/g, '')
             cleanData = cleanData.replace(/event:\s*/g, '')
             
-            if (cleanData && cleanData !== '[DONE]') {
+            // citations, metrics, doneという文字列が本文に含まれていたら除去
+            cleanData = cleanData.replace(/\bcitations\b/g, '')
+            cleanData = cleanData.replace(/\bmetrics\b/g, '')
+            cleanData = cleanData.replace(/\bdone\b/g, '')
+            
+            // JSON配列やJSONオブジェクトが含まれていたら除去
+            cleanData = cleanData.replace(/\[{.*?}\]/g, '')
+            cleanData = cleanData.replace(/\{.*?\}/g, '')
+            
+            if (cleanData && cleanData !== '[DONE]' && cleanData.trim()) {
               appendAssistantText(cleanData)
             }
           }
@@ -190,7 +199,16 @@ export default function ChatPage() {
             cleanData = cleanData.replace(/data:\s*/g, '')
             cleanData = cleanData.replace(/event:\s*/g, '')
             
-            if (cleanData && cleanData !== '[DONE]') {
+            // citations, metrics, doneという文字列が本文に含まれていたら除去
+            cleanData = cleanData.replace(/\bcitations\b/g, '')
+            cleanData = cleanData.replace(/\bmetrics\b/g, '')
+            cleanData = cleanData.replace(/\bdone\b/g, '')
+            
+            // JSON配列やJSONオブジェクトが含まれていたら除去
+            cleanData = cleanData.replace(/\[{.*?}\]/g, '')
+            cleanData = cleanData.replace(/\{.*?\}/g, '')
+            
+            if (cleanData && cleanData !== '[DONE]' && cleanData.trim()) {
               appendAssistantText(cleanData)
             }
           }

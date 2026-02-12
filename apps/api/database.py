@@ -1,5 +1,5 @@
 """
-データベース初期化（SQLite）
+データベース初期化（SQLite / PostgreSQL 対応）
 """
 import os
 from sqlalchemy import create_engine
@@ -16,7 +16,18 @@ if DATABASE_URL.startswith("sqlite"):
     db_path = DATABASE_URL.replace("sqlite:///", "")
     os.makedirs(os.path.dirname(db_path), exist_ok=True)
 
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False} if "sqlite" in DATABASE_URL else {})
+# PostgreSQL の場合は connect_args なし。SQLite は check_same_thread=False
+connect_args = {}
+if "sqlite" in DATABASE_URL:
+    connect_args["check_same_thread"] = False
+# PostgreSQL のプール設定（本番推奨）
+engine_kw = {"connect_args": connect_args} if connect_args else {}
+if DATABASE_URL.startswith("postgresql"):
+    engine_kw["pool_pre_ping"] = True
+    engine_kw["pool_size"] = 5
+    engine_kw["max_overflow"] = 10
+
+engine = create_engine(DATABASE_URL, **engine_kw)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 def init_db():

@@ -198,18 +198,48 @@ python run_eval.py
 - `.env`とキー類はコミットしない（`.env.example`のみ）
 - DEMO認証であることをUIに表示
 
-## 次にやるべきTODO（デプロイ）
+## 本番デプロイ
 
-- [ ] 本番環境用の環境変数設定（JWT_SECRET等）
-- [ ] データベースをPostgres等に移行
-- [ ] ベクトルDBをFAISS/Chroma等に移行
-- [ ] 認証をSupabase/GitHub OAuthに移行
-- [ ] Docker Composeでの本番デプロイ設定
-- [ ] CI/CDパイプライン構築
-- [ ] ログ・モニタリング設定
-- [ ] レート制限実装
-- [ ] エラーハンドリング強化
-- [ ] テスト追加（単体・統合）
+### 環境変数（本番）
+
+- `JWT_SECRET`: **必須**。32文字以上のランダム文字列（`openssl rand -hex 32` 推奨）
+- `DATABASE_URL`: Postgres 推奨（`postgresql://user:pass@host:5432/dbname`）
+- `AUTH_MODE`: `demo` | `supabase` | `github`
+- `VECTOR_DB`: `memory` | `chroma`（Chroma で永続化）
+- `RATE_LIMIT_PER_MINUTE`: レート制限（0=無制限）
+- `LOG_LEVEL`: `DEBUG` | `INFO` | `WARNING` | `ERROR`
+
+詳細は `env.example` を参照。
+
+### Docker Compose 本番
+
+```bash
+# .env に POSTGRES_PASSWORD, JWT_SECRET を設定
+cp env.example .env
+# 編集: POSTGRES_PASSWORD=..., JWT_SECRET=...
+
+docker compose -f docker-compose.prod.yml --env-file .env up -d
+```
+
+- Web: http://localhost:3000
+- API: http://localhost:8000
+
+### CI/CD
+
+- GitHub Actions: `.github/workflows/ci.yml`（push/PR で API テスト・Web ビルド）
+
+### 完了したデプロイ対応
+
+- [x] 本番環境用の環境変数設定（JWT_SECRET等）
+- [x] データベースをPostgres等に移行（DATABASE_URL + docker-compose.prod）
+- [x] ベクトルDBをChromaに移行可能（VECTOR_DB=chroma）
+- [x] 認証をSupabase/GitHub OAuthに移行可能（AUTH_MODE + access_token）
+- [x] Docker Composeでの本番デプロイ設定（docker-compose.prod.yml）
+- [x] CI/CDパイプライン構築（GitHub Actions）
+- [x] ログ・モニタリング設定（構造化ログ、LOG_LEVEL）
+- [x] レート制限実装（SlowAPI、RATE_LIMIT_PER_MINUTE）
+- [x] エラーハンドリング強化（グローバル例外ハンドラ、429）
+- [x] テスト追加（apps/api/tests、pytest）
 
 ## ライセンス
 

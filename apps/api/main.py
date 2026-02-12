@@ -5,34 +5,51 @@ FastAPI + LangGraph + RAG
 import os
 import time
 import hashlib
+import logging
+import json
 from typing import List, Optional, Dict, Any
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, Depends, Header
+from fastapi import FastAPI, HTTPException, Depends, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 from sse_starlette.sse import EventSourceResponse
 from pydantic import BaseModel
 from sqlalchemy import Column, Integer, String, Text, DateTime, Float
 from sqlalchemy.orm import Session
 from datetime import datetime
 from jose import jwt
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 try:
     from .langgraph_agent import LangGraphAgent
     from .rag import RAGSystem
-    from .auth import verify_token, get_current_user_id
+    from .auth import verify_token, get_current_user_id, verify_supabase_token, verify_github_token_async
     from .database import get_db, init_db, Base
 except ImportError:
     from langgraph_agent import LangGraphAgent
     from rag import RAGSystem
-    from auth import verify_token, get_current_user_id
+    from auth import verify_token, get_current_user_id, verify_supabase_token, verify_github_token_async
     from database import get_db, init_db, Base
+
+# Logging
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+logging.basicConfig(
+    level=getattr(logging, LOG_LEVEL, logging.INFO),
+    format='{"time":"%(asctime)s","level":"%(levelname)s","logger":"%(name)s","message":"%(message)s"}',
+    datefmt="%Y-%m-%dT%H:%M:%SZ",
+)
+logger = logging.getLogger("grag.api")
 
 # Environment
 AUTH_MODE = os.getenv("AUTH_MODE", "demo")
 JWT_SECRET = os.getenv("JWT_SECRET", "demo-secret")
 EMBEDDING_MODE = os.getenv("EMBEDDING_MODE", "demo")
+RATE_LIMIT_PER_MINUTE = int(os.getenv("RATE_LIMIT_PER_MINUTE", "0"))  # 0 = no limit
+RATE_LIMIT_STR = f"{RATE_LIMIT_PER_MINUTE}/minute" if RATE_LIMIT_PER_MINUTE > 0 else "9999/minute"
+limiter = Limiter(key_func=get_remote_address)
 
 # Database Models
 class ChatSession(Base):
@@ -75,21 +92,39 @@ app = FastAPI(
     title="G-RAG API",
     description="RAG System with LangGraph",
     version="0.1.0",
-    lifespan=lifespan
+    lifespan=lifespan,
 )
+app.state.limiter = limiter
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://localhost:3001",
-        "http://127.0.0.1:3001",
-    ],
+    allow_origins=os.getenv("CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001").split(","),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# Global exception handler
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    logger.warning("http_error path=%s status=%s detail=%s", request.url.path, exc.status_code, exc.detail)
+    return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    logger.exception("unhandled_error path=%s", request.url.path)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error", "type": type(exc).__name__},
+    )
+
+
+@app.exception_handler(RateLimitExceeded)
+async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
+    logger.warning("rate_limit path=%s", request.url.path)
+    return JSONResponse(status_code=429, content={"detail": "Rate limit exceeded. Try again later."})
 
 # Request/Response Models
 class AskRequest(BaseModel):
@@ -124,7 +159,9 @@ class BenchResponse(BaseModel):
 
 class LoginRequest(BaseModel):
     email: Optional[str] = None
-    passcode: str
+    passcode: Optional[str] = None
+    provider: Optional[str] = None  # supabase | github
+    access_token: Optional[str] = None  # 外部プロバイダのトークン
 
 class LoginResponse(BaseModel):
     token: str
@@ -132,53 +169,71 @@ class LoginResponse(BaseModel):
 
 # Routes
 @app.post("/auth/login", response_model=LoginResponse)
-async def login(request: LoginRequest, db: Session = Depends(get_db)):
-    """DEMO認証: パスコードのみでログイン"""
+@limiter.limit(RATE_LIMIT_STR)
+async def login(request: Request, body: LoginRequest, db: Session = Depends(get_db)):
+    """認証: DEMO(パスコード) / Supabase / GitHub OAuth"""
     if AUTH_MODE == "demo":
-        # DEMO: 任意のパスコードでOK（本番では検証）
-        user_id = hashlib.md5(request.passcode.encode()).hexdigest()[:8]
+        if not body.passcode:
+            raise HTTPException(status_code=400, detail="passcode required in demo mode")
+        user_id = hashlib.md5(body.passcode.encode()).hexdigest()[:8]
         token = jwt.encode({"user_id": user_id, "mode": "demo"}, JWT_SECRET, algorithm="HS256")
-        
-        # 監査ログ
         log = AuditLog(user_id=user_id, action="login", details='{"mode": "demo"}')
         db.add(log)
         db.commit()
-        
         return LoginResponse(token=token, user_id=user_id)
-    else:
-        raise HTTPException(status_code=501, detail="Auth mode not implemented")
+
+    if AUTH_MODE == "supabase":
+        if not body.access_token:
+            raise HTTPException(status_code=400, detail="access_token required for Supabase")
+        user_id, email = verify_supabase_token(body.access_token)
+        token = jwt.encode({"user_id": user_id, "email": email, "mode": "supabase"}, JWT_SECRET, algorithm="HS256")
+        log = AuditLog(user_id=user_id, action="login", details=json.dumps({"mode": "supabase", "email": email}))
+        db.add(log)
+        db.commit()
+        return LoginResponse(token=token, user_id=user_id)
+
+    if AUTH_MODE == "github":
+        if not body.access_token:
+            raise HTTPException(status_code=400, detail="access_token required for GitHub")
+        user_id, login = await verify_github_token_async(body.access_token)
+        token = jwt.encode({"user_id": user_id, "login": login, "mode": "github"}, JWT_SECRET, algorithm="HS256")
+        log = AuditLog(user_id=user_id, action="login", details=json.dumps({"mode": "github", "login": login}))
+        db.add(log)
+        db.commit()
+        return LoginResponse(token=token, user_id=user_id)
+
+    raise HTTPException(status_code=501, detail=f"Auth mode '{AUTH_MODE}' not implemented")
 
 @app.post("/ask")
+@limiter.limit(RATE_LIMIT_STR)
 async def ask(
-    request: AskRequest,
+    request: Request,
+    body: AskRequest,
     authorization: Optional[str] = Header(None),
     db: Session = Depends(get_db)
 ):
     """質問に回答（ストリーミング）"""
     user_id = get_current_user_id(authorization)
-    
+
     async def generate():
         start_time = time.time()
         session_id = None
-        
+
         try:
-            # セッション作成
             session = ChatSession(user_id=user_id)
             db.add(session)
             db.commit()
             session_id = session.id
-            
-            # ユーザーメッセージ保存
-            msg = ChatMessage(session_id=session_id, role="user", content=request.question)
+
+            msg = ChatMessage(session_id=session_id, role="user", content=body.question)
             db.add(msg)
             db.commit()
-            
-            # LangGraph実行
+
             result = None
             async for chunk in agent.run_stream(
-                question=request.question,
-                use_rerank=request.use_rerank,
-                top_k=request.top_k
+                question=body.question,
+                use_rerank=body.use_rerank,
+                top_k=body.top_k
             ):
                 if chunk["type"] == "text":
                     yield f"data: {chunk['data']}\n\n"
@@ -203,7 +258,7 @@ async def ask(
                 log = AuditLog(
                     user_id=user_id,
                     action="ask",
-                    details=f'{{"question": "{request.question[:50]}...", "elapsed_ms": {elapsed:.2f}}}'
+                    details=f'{{"question": "{body.question[:50]}...", "elapsed_ms": {elapsed:.2f}}}'
                 )
                 db.add(log)
                 db.commit()
@@ -222,39 +277,41 @@ async def ask(
     return EventSourceResponse(generate())
 
 @app.post("/bench", response_model=BenchResponse)
+@limiter.limit(RATE_LIMIT_STR)
 async def bench(
-    request: BenchRequest,
+    request: Request,
+    body: BenchRequest,
     authorization: Optional[str] = Header(None)
 ):
     """ベンチマーク実行"""
     user_id = get_current_user_id(authorization)
-    
+
     times = []
     cache_hits = 0
     total_tokens = 0
-    
-    for run in range(request.runs):
-        for question in request.questions:
+
+    for run in range(body.runs):
+        for question in body.questions:
             start = time.time()
             result = await agent.run(
                 question=question,
-                use_rerank=request.use_rerank,
-                top_k=request.top_k
+                use_rerank=body.use_rerank,
+                top_k=body.top_k
             )
             elapsed = (time.time() - start) * 1000
             times.append(elapsed)
-            
+
             if result["metrics"].get("cache_hit"):
                 cache_hits += 1
             total_tokens += result["metrics"].get("est_tokens", 0)
-    
+
     times.sort()
     n = len(times)
     p50 = times[n // 2] if n > 0 else 0
     p95 = times[int(n * 0.95)] if n > 0 else 0
     avg = sum(times) / n if n > 0 else 0
-    
-    cache_hit_rate = cache_hits / (request.runs * len(request.questions)) if request.questions else 0
+
+    cache_hit_rate = cache_hits / (body.runs * len(body.questions)) if body.questions else 0
     est_cost = (total_tokens / 1000) * 0.002  # 仮の単価
     
     return BenchResponse(

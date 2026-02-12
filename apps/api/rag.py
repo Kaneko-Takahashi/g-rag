@@ -1,52 +1,87 @@
 """
-RAGシステム（DEMO/REALモード対応）
+RAGシステム（DEMO/REALモード対応、メモリ/Chroma ベクトルDB対応）
 """
 import os
 import hashlib
-import json
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional
 from pathlib import Path
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 from cachetools import LRUCache
 
 EMBEDDING_MODE = os.getenv("EMBEDDING_MODE", "demo")
-DATA_DIR = Path(__file__).parent.parent.parent / "data"
+VECTOR_DB = os.getenv("VECTOR_DB", "memory")
+DATA_DIR = Path(os.getenv("DATA_DIR", str(Path(__file__).parent.parent.parent / "data")))
+
 
 class RAGSystem:
     def __init__(self):
         self.mode = EMBEDDING_MODE
+        self.vector_db = VECTOR_DB
         self.documents: List[Dict] = []
         self.embeddings: Optional[np.ndarray] = None
+        self._chroma_client = None
+        self._chroma_collection = None
         self.cache = LRUCache(maxsize=int(os.getenv("CACHE_SIZE", 1000)))
         self.chunk_size = int(os.getenv("DEFAULT_CHUNK_SIZE", 500))
         self.chunk_overlap = int(os.getenv("DEFAULT_CHUNK_OVERLAP", 50))
-    
+
     async def initialize(self):
         """初期化: 文書読み込みとベクトル化"""
-        # data/*.md を読み込み
         md_files = list(DATA_DIR.glob("*.md"))
         if not md_files:
-            # サンプル文書を生成
             await self._create_sample_docs()
             md_files = list(DATA_DIR.glob("*.md"))
-        
+
         chunks = []
         for md_file in md_files:
             with open(md_file, "r", encoding="utf-8") as f:
                 content = f.read()
                 doc_chunks = self._chunk_text(content, md_file.stem)
                 chunks.extend(doc_chunks)
-        
+
         self.documents = chunks
-        
-        # 埋め込み生成
+
         texts = [chunk["text"] for chunk in chunks]
         if self.mode == "demo":
-            self.embeddings = self._demo_embed(texts)
+            emb = self._demo_embed(texts)
         else:
-            self.embeddings = await self._real_embed(texts)
-    
+            emb = await self._real_embed(texts)
+
+        if self.vector_db == "chroma":
+            await self._init_chroma(chunks, emb)
+        else:
+            self.embeddings = emb
+
+    async def _init_chroma(self, chunks: List[Dict], embeddings: np.ndarray):
+        """ChromaDB にコレクション作成・投入"""
+        try:
+            import chromadb
+            from chromadb.config import Settings
+
+            persist_dir = os.getenv("CHROMA_PERSIST_DIR", "./data/chroma")
+            os.makedirs(persist_dir, exist_ok=True)
+            self._chroma_client = chromadb.PersistentClient(path=persist_dir, settings=Settings(anonymized_telemetry=False))
+            self._chroma_collection = self._chroma_client.get_or_create_collection(
+                name="grag_docs",
+                metadata={"description": "G-RAG document chunks"},
+            )
+            if self._chroma_collection.count() == 0:
+                ids = [c["id"] for c in chunks]
+                metadatas = [{"doc_id": c["doc_id"], "title": c["title"]} for c in chunks]
+                docs = [c["text"] for c in chunks]
+                self._chroma_collection.add(
+                    ids=ids,
+                    embeddings=embeddings.tolist(),
+                    documents=docs,
+                    metadatas=metadatas,
+                )
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning("Chroma init failed, falling back to memory: %s", e)
+            self.vector_db = "memory"
+            self.embeddings = embeddings
+
     def _chunk_text(self, text: str, doc_id: str) -> List[Dict]:
         """テキストをチャンクに分割"""
         chunks = []
@@ -60,27 +95,24 @@ class RAGSystem:
                 "title": doc_id.replace("_", " ").title()
             })
         return chunks
-    
+
     def _demo_embed(self, texts: List[str]) -> np.ndarray:
         """DEMO: 簡易ベクトル化（hashベース）"""
-        # 各テキストを固定次元ベクトルに変換（簡易版）
         dim = 128
         embeddings = []
         for text in texts:
             vec = np.zeros(dim)
-            # 単語のhashを利用
             words = text.lower().split()
-            for word in words[:50]:  # 最初の50単語
+            for word in words[:50]:
                 h = int(hashlib.md5(word.encode()).hexdigest(), 16)
                 idx = h % dim
                 vec[idx] += 1.0
-            # 正規化
             norm = np.linalg.norm(vec)
             if norm > 0:
                 vec = vec / norm
             embeddings.append(vec)
         return np.array(embeddings)
-    
+
     async def _real_embed(self, texts: List[str]) -> np.ndarray:
         """REAL: OpenAI/Azure OpenAI埋め込み"""
         try:
@@ -89,13 +121,13 @@ class RAGSystem:
             vectors = await embeddings_model.aembed_documents(texts)
             return np.array(vectors)
         except Exception as e:
-            print(f"Real embedding failed: {e}, falling back to demo")
+            import logging
+            logging.getLogger(__name__).warning("Real embedding failed, falling back to demo: %s", e)
             return self._demo_embed(texts)
-    
+
     async def _create_sample_docs(self):
         """サンプル文書作成"""
         DATA_DIR.mkdir(parents=True, exist_ok=True)
-        
         samples = [
             ("ai_overview.md", """
 # AI Overview
@@ -143,10 +175,9 @@ LangGraph is a framework for building stateful, multi-actor applications with LL
 LangGraph is ideal for building agents, chatbots, and complex reasoning systems that require multiple steps and decision points.
 """)
         ]
-        
         for filename, content in samples:
             (DATA_DIR / filename).write_text(content.strip(), encoding="utf-8")
-    
+
     async def retrieve(
         self,
         query: str,
@@ -157,35 +188,68 @@ LangGraph is ideal for building agents, chatbots, and complex reasoning systems 
         cache_key = f"retrieve:{hashlib.md5(query.encode()).hexdigest()}:{top_k}:{use_rerank}"
         if cache_key in self.cache:
             return self.cache[cache_key]
-        
-        # クエリ埋め込み
+
         if self.mode == "demo":
             query_vec = self._demo_embed([query])[0]
         else:
             query_vec = (await self._real_embed([query]))[0]
-        
-        # 類似度計算
+
+        if self.vector_db == "chroma" and self._chroma_collection is not None:
+            results = await self._retrieve_chroma(query_vec, top_k, use_rerank, query)
+        else:
+            results = await self._retrieve_memory(query_vec, top_k, use_rerank, query)
+
+        self.cache[cache_key] = results
+        return results
+
+    async def _retrieve_memory(
+        self, query_vec: np.ndarray, top_k: int, use_rerank: bool, query: str
+    ) -> List[Dict]:
+        """メモリ内ベクトルで検索"""
         similarities = cosine_similarity([query_vec], self.embeddings)[0]
-        top_indices = np.argsort(similarities)[::-1][:top_k * 2]  # リランク用に多めに取得
-        
+        top_indices = np.argsort(similarities)[::-1][:top_k * 2]
         results = []
         for idx in top_indices:
             doc = self.documents[idx].copy()
             doc["score"] = float(similarities[idx])
             results.append(doc)
-        
-        # リランク（簡易版: スコア再計算）
         if use_rerank and len(results) > top_k:
-            # 簡易リランク: クエリとの単語マッチ数を追加スコアに
             query_words = set(query.lower().split())
             for doc in results:
                 doc_words = set(doc["text"].lower().split())
                 match_ratio = len(query_words & doc_words) / max(len(query_words), 1)
                 doc["score"] = doc["score"] * 0.7 + match_ratio * 0.3
-            
             results.sort(key=lambda x: x["score"], reverse=True)
-        
-        final_results = results[:top_k]
-        self.cache[cache_key] = final_results
-        return final_results
+        return results[:top_k]
 
+    async def _retrieve_chroma(
+        self, query_vec: np.ndarray, top_k: int, use_rerank: bool, query: str
+    ) -> List[Dict]:
+        """ChromaDB で検索"""
+        n_results = top_k * 2 if use_rerank else top_k
+        res = self._chroma_collection.query(
+            query_embeddings=[query_vec.tolist()],
+            n_results=min(n_results, self._chroma_collection.count()),
+            include=["documents", "metadatas", "distances"],
+        )
+        results = []
+        if res["ids"] and res["ids"][0]:
+            for i, id_ in enumerate(res["ids"][0]):
+                dist = res["distances"][0][i] if res["distances"] else 0
+                score = 1.0 / (1.0 + dist) if dist is not None else 0.0
+                meta = res["metadatas"][0][i] if res["metadatas"] else {}
+                results.append({
+                    "id": id_,
+                    "doc_id": meta.get("doc_id", ""),
+                    "text": res["documents"][0][i],
+                    "title": meta.get("title", ""),
+                    "score": score,
+                })
+        if use_rerank and len(results) > top_k:
+            query_words = set(query.lower().split())
+            for doc in results:
+                doc_words = set(doc["text"].lower().split())
+                match_ratio = len(query_words & doc_words) / max(len(query_words), 1)
+                doc["score"] = doc["score"] * 0.7 + match_ratio * 0.3
+            results.sort(key=lambda x: x["score"], reverse=True)
+        return results[:top_k]
