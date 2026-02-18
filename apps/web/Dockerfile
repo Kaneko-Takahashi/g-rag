@@ -2,7 +2,7 @@
 FROM node:20-alpine AS deps
 WORKDIR /app
 COPY package.json yarn.lock* ./
-RUN yarn install --frozen-lockfile
+RUN yarn install
 
 FROM node:20-alpine AS builder
 WORKDIR /app
@@ -12,6 +12,8 @@ ENV NEXT_TELEMETRY_DISABLED=1
 # ビルド時に API URL を渡す
 ARG NEXT_PUBLIC_API_URL=http://localhost:8000
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+# Next.js ビルドのメモリ不足を防ぐ
+ENV NODE_OPTIONS=--max-old-space-size=4096
 RUN yarn build
 
 FROM node:20-alpine AS runner

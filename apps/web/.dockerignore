@@ -1,0 +1,8 @@
+# ビルドで deps の node_modules を使うため、ローカルの node_modules はコピーしない
+node_modules
+.next
+.git
+*.md
+.env*
+Dockerfile
+.dockerignore
