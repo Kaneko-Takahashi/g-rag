@@ -23,14 +23,16 @@
 - **REAL**: OpenAI/Azure OpenAI embeddings
 
 ### ベクトルDB
-- 初期: メモリ内（numpy + sklearn）
-- 将来: FAISS/Chroma等へ移行可能
+- **memory**（デフォルト）: メモリ内（numpy + sklearn）
+- **chroma**: ChromaDB で永続化（`VECTOR_DB=chroma`、`CHROMA_PERSIST_DIR` で指定）
 
 ### キャッシュ
 - LRUキャッシュ（埋め込み・検索結果）
 - ベンチマークでヒット率計測
 
-## LangGraph
+## エージェントフロー（LangGraph風）
+
+API のエージェントは `langgraph_agent.py` で自前実装。Python パッケージの `langgraph` は未使用。LLM 連携は `langchain-core` と `langchain-openai` のみ使用（依存関係競合を避けるため）。
 
 ### ノード構成
 1. `classify_intent`: 意図分類（キーワードベース）

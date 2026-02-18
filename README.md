@@ -161,12 +161,14 @@ python run_eval.py
       app/        # App Router
       components/ # UIコンポーネント
       lib/        # ユーティリティ
+      .dockerignore  # Dockerビルド時に node_modules を除外
     api/          # FastAPI (Python)
       main.py     # APIエントリーポイント
       rag.py      # RAGシステム
-      langgraph_agent.py  # LangGraph実装
+      langgraph_agent.py  # エージェントフロー（自前実装）
       auth.py     # 認証
       database.py # DB初期化
+      tests/      # pytest
   eval/           # 評価スクリプト
     questions.jsonl
     run_eval.py
@@ -216,13 +218,29 @@ python run_eval.py
 ```bash
 # .env に POSTGRES_PASSWORD, JWT_SECRET を設定
 cp env.example .env
-# 編集: POSTGRES_PASSWORD=..., JWT_SECRET=...
+# 編集: POSTGRES_PASSWORD=..., JWT_SECRET=...（いずれも必須）
 
-docker compose -f docker-compose.prod.yml --env-file .env up -d
+docker compose -f docker-compose.prod.yml --env-file .env up -d --build
 ```
 
 - Web: http://localhost:3000
 - API: http://localhost:8000
+
+**初回やイメージの作り直し時は `--build` を付ける。**
+
+### 本番Dockerの注意（トラブルシューティング）
+
+- **WSL 2 で Docker を使っている場合**: メモリ不足で Web ビルドが落ちることがあります。`C:\Users\<あなたのユーザー名>\.wslconfig` に `[wsl2]` セクションで `memory=8GB` などを設定し、`wsl --shutdown` のあと Docker Desktop を再起動してください。
+- **API の Python 依存**: `langchain-core` と `langchain-openai` を使用（競合回避のためトップレベルの `langchain` パッケージは未使用）。エージェントフローは `langgraph_agent.py` 内の自前実装です。
+- **Web の Docker ビルド**: `apps/web/.dockerignore` で `node_modules` を除外し、コンテナ内でクリーンに `yarn install` しています。
+
+**本番コンテナの停止**
+
+```bash
+docker compose -f docker-compose.prod.yml down
+```
+
+データを消す場合: `down -v`
 
 ### CI/CD
 
