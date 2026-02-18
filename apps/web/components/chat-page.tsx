@@ -21,8 +21,8 @@ export default function ChatPage() {
     setCitations([])
     setMetrics(null)
     
-    // ストリーミング回答用のメッセージを追加
-    const assistantMessageId = messages.length
+    // ストリーミング回答用のメッセージを追加（user の次が assistant なので +1）
+    const assistantMessageId = messages.length + 1
     setMessages(prev => [...prev, { role: 'assistant', content: '' }])
     
     abortControllerRef.current = new AbortController()

@@ -7,6 +7,7 @@ import time
 import hashlib
 import logging
 import json
+from pathlib import Path
 from typing import List, Optional, Dict, Any
 from contextlib import asynccontextmanager
 
@@ -104,6 +105,34 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ルート GET / をミドルウェアで確実に返す（リロードやルート登録順に依存しない）
+ROOT_PAYLOAD = {
+    "message": "G-RAG API",
+    "docs": "/docs",
+    "health": "/health",
+    "note": "チャットは Web アプリ (yarn dev:web → localhost:3002) から利用してください。",
+}
+
+
+class RootRouteMiddleware:
+    """GET / をここで処理して 404 を防ぐ"""
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        path = scope.get("path", "").rstrip("/") or "/"
+        method = scope.get("method", "")
+        if path == "/" and method == "GET":
+            response = JSONResponse(ROOT_PAYLOAD)
+            await response(scope, receive, send)
+            return
+        await self.app(scope, receive, send)
+
+
+app.add_middleware(RootRouteMiddleware)
 
 # Global exception handler
 @app.exception_handler(HTTPException)
@@ -125,6 +154,23 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
     logger.warning("rate_limit path=%s", request.url.path)
     return JSONResponse(status_code=429, content={"detail": "Rate limit exceeded. Try again later."})
+
+
+def _root_payload():
+    return ROOT_PAYLOAD
+
+
+@app.get("/")
+async def root():
+    """ルート: API の案内。"""
+    return _root_payload()
+
+
+@app.get("/info")
+async def info():
+    """API 案内（/ が使えない環境用）。"""
+    return _root_payload()
+
 
 # Request/Response Models
 class AskRequest(BaseModel):
@@ -167,28 +213,7 @@ class LoginResponse(BaseModel):
     token: str
     user_id: str
 
-# Routes
-def _root_payload():
-    return {
-        "message": "G-RAG API",
-        "docs": "/docs",
-        "health": "/health",
-        "note": "チャットは Web アプリ (yarn dev:web → localhost:3000) から利用してください。",
-    }
-
-
-@app.get("/")
-async def root():
-    """ルート: API の案内。"""
-    return _root_payload()
-
-
-@app.get("/info")
-async def info():
-    """API 案内（/ が使えない環境用）。"""
-    return _root_payload()
-
-
+# Routes (auth, ask, bench, etc.)
 @app.post("/auth/login", response_model=LoginResponse)
 @limiter.limit(RATE_LIMIT_STR)
 async def login(request: Request, body: LoginRequest, db: Session = Depends(get_db)):
@@ -398,6 +423,22 @@ async def get_audit(
         }
         for l in logs
     ]
+
+@app.get("/eval/results")
+async def get_eval_results(authorization: Optional[str] = Header(None)):
+    """評価結果（eval/results.md）を返す。評価は eval/run_eval.py で事前実行すること。"""
+    get_current_user_id(authorization)
+    # プロジェクトルートの eval/results.md（main.py は apps/api にある）
+    repo_root = Path(__file__).resolve().parent.parent.parent
+    results_path = repo_root / "eval" / "results.md"
+    if not results_path.is_file():
+        raise HTTPException(status_code=404, detail="評価結果がありません。eval/run_eval.py を実行してください。")
+    try:
+        text = results_path.read_text(encoding="utf-8")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"結果の読み込みに失敗しました: {e}")
+    return {"markdown": text}
+
 
 @app.get("/health")
 async def health():
