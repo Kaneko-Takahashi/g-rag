@@ -1,0 +1,41 @@
+config_name,question,elapsed_ms,citation_count,total_elapsed_ms
+"A: top_k=2, rerank=off",What is artificial intelligence?,5371.541261672974,0,0
+"A: top_k=2, rerank=off",How does RAG work?,5165.910720825195,0,0
+"A: top_k=2, rerank=off",What is LangGraph?,5142.556667327881,0,0
+"A: top_k=2, rerank=off",Explain machine learning,5264.679193496704,0,0
+"A: top_k=2, rerank=off",What are the benefits of RAG?,5237.204790115356,0,0
+"A: top_k=2, rerank=off",How to build a chatbot?,5123.812198638916,0,0
+"A: top_k=2, rerank=off",What is vector similarity?,5154.507160186768,0,0
+"A: top_k=2, rerank=off",Explain deep learning,5127.844572067261,0,0
+"A: top_k=2, rerank=off",What is a knowledge base?,5167.632341384888,0,0
+"A: top_k=2, rerank=off",How does embedding work?,5137.672424316406,0,0
+"B: top_k=4, rerank=off",What is artificial intelligence?,7402.094841003418,0,0
+"B: top_k=4, rerank=off",How does RAG work?,7298.786878585815,0,0
+"B: top_k=4, rerank=off",What is LangGraph?,7288.531064987183,0,0
+"B: top_k=4, rerank=off",Explain machine learning,7390.059471130371,0,0
+"B: top_k=4, rerank=off",What are the benefits of RAG?,7414.984464645386,0,0
+"B: top_k=4, rerank=off",How to build a chatbot?,7413.444042205811,0,0
+"B: top_k=4, rerank=off",What is vector similarity?,7376.497268676758,0,0
+"B: top_k=4, rerank=off",Explain deep learning,7283.370018005371,0,0
+"B: top_k=4, rerank=off",What is a knowledge base?,7321.945667266846,0,0
+"B: top_k=4, rerank=off",How does embedding work?,7443.636417388916,0,0
+"C: top_k=4, rerank=on",What is artificial intelligence?,7434.225797653198,0,0
+"C: top_k=4, rerank=on",How does RAG work?,7300.652742385864,0,0
+"C: top_k=4, rerank=on",What is LangGraph?,7335.005044937134,0,0
+"C: top_k=4, rerank=on",Explain machine learning,7352.064847946167,0,0
+"C: top_k=4, rerank=on",What are the benefits of RAG?,7473.503112792969,0,0
+"C: top_k=4, rerank=on",How to build a chatbot?,7391.291379928589,0,0
+"C: top_k=4, rerank=on",What is vector similarity?,7418.708562850952,0,0
+"C: top_k=4, rerank=on",Explain deep learning,7377.061128616333,0,0
+"C: top_k=4, rerank=on",What is a knowledge base?,7418.227434158325,0,0
+"C: top_k=4, rerank=on",How does embedding work?,7386.254787445068,0,0
+"D: top_k=8, rerank=on",What is artificial intelligence?,7451.669931411743,0,0
+"D: top_k=8, rerank=on",How does RAG work?,7332.767486572266,0,0
+"D: top_k=8, rerank=on",What is LangGraph?,7347.377300262451,0,0
+"D: top_k=8, rerank=on",Explain machine learning,7392.41623878479,0,0
+"D: top_k=8, rerank=on",What are the benefits of RAG?,7446.763038635254,0,0
+"D: top_k=8, rerank=on",How to build a chatbot?,7377.427339553833,0,0
+"D: top_k=8, rerank=on",What is vector similarity?,7361.372709274292,0,0
+"D: top_k=8, rerank=on",Explain deep learning,7323.7574100494385,0,0
+"D: top_k=8, rerank=on",What is a knowledge base?,7390.661001205444,0,0
+"D: top_k=8, rerank=on",How does embedding work?,7411.602258682251,0,0

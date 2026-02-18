@@ -86,11 +86,14 @@ async def run_eval():
             data = await resp.json()
             token = data["token"]
     
-    # 質問読み込み
+    # 質問読み込み（空行はスキップ）
     questions_file = Path(__file__).parent / "questions.jsonl"
     questions = []
     with open(questions_file, "r", encoding="utf-8") as f:
         for line in f:
+            line = line.strip()
+            if not line:
+                continue
             questions.append(json.loads(line)["question"])
     
     # 設定パターン
