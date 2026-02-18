@@ -218,8 +218,14 @@ class LangGraphAgent:
                     yield {"type": "text", "data": chunk.content}
             state.answer = answer
         else:
-            # DEMO: 模擬ストリーミング
-            demo_answer = f"""質問「{state.question}」について、{len(state.retrieved_docs)}件の関連文書を参照しました。\n\n主な内容:\n"""
+            # DEMO: 模擬ストリーミング（参照文書の抜粋を含める）
+            context = "\n\n".join([f"[{i+1}] {doc['text'][:200]}..." for i, doc in enumerate(state.retrieved_docs)])
+            demo_answer = f"""質問「{state.question}」について、{len(state.retrieved_docs)}件の関連文書を参照しました。
+
+主な内容:
+{context}
+
+（DEMOモード: 実際のLLM回答ではありません）"""
             for char in demo_answer:
                 yield {"type": "text", "data": char}
                 await asyncio.sleep(0.01)  # ストリーミング感

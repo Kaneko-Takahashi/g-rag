@@ -18,7 +18,8 @@ export default function Sidebar() {
 
   return (
     <div className="w-64 h-screen bg-card border-r flex flex-col">
-      <div className="p-4 border-b">
+      <div className="p-4 border-b flex items-center gap-2">
+        <img src="/icon.png" alt="" width={32} height={32} className="rounded" />
         <h1 className="text-xl font-bold">G-RAG</h1>
       </div>
       <nav className="flex-1 p-4 space-y-1">
