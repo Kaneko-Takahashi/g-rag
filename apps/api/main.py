@@ -98,7 +98,7 @@ app.state.limiter = limiter
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=os.getenv("CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001").split(","),
+    allow_origins=os.getenv("CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001,http://localhost:3002,http://127.0.0.1:3002").split(","),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -168,6 +168,27 @@ class LoginResponse(BaseModel):
     user_id: str
 
 # Routes
+def _root_payload():
+    return {
+        "message": "G-RAG API",
+        "docs": "/docs",
+        "health": "/health",
+        "note": "チャットは Web アプリ (yarn dev:web → localhost:3000) から利用してください。",
+    }
+
+
+@app.get("/")
+async def root():
+    """ルート: API の案内。"""
+    return _root_payload()
+
+
+@app.get("/info")
+async def info():
+    """API 案内（/ が使えない環境用）。"""
+    return _root_payload()
+
+
 @app.post("/auth/login", response_model=LoginResponse)
 @limiter.limit(RATE_LIMIT_STR)
 async def login(request: Request, body: LoginRequest, db: Session = Depends(get_db)):
@@ -380,6 +401,13 @@ async def get_audit(
 
 @app.get("/health")
 async def health():
-    """ヘルスチェック"""
-    return {"status": "ok", "mode": EMBEDDING_MODE, "auth_mode": AUTH_MODE}
+    """ヘルスチェック（API 案内も含む）"""
+    return {
+        "status": "ok",
+        "mode": EMBEDDING_MODE,
+        "auth_mode": AUTH_MODE,
+        "message": "G-RAG API",
+        "docs": "/docs",
+        "note": "チャットは Web アプリ (yarn dev:web → localhost:3000) から利用してください。",
+    }
 

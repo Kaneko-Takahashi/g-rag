@@ -6,8 +6,8 @@
     "apps/*"
   ],
   "scripts": {
-    "dev:web": "yarn workspace web dev",
-    "build:web": "yarn workspace web build",
+    "dev:web": "yarn workspace g-rag-web dev",
+    "build:web": "yarn workspace g-rag-web build",
     "dev:api": "cd apps/api && python -m uvicorn main:app --reload --port 8000",
     "install:all": "yarn install && cd apps/api && pip install -r requirements.txt"
   },

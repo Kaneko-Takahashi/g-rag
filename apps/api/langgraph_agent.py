@@ -4,10 +4,38 @@ LangGraph Agent実装
 import time
 import json
 import asyncio
+import re
 from typing import Dict, Any, List, Optional, AsyncIterator
 from langchain_core.messages import HumanMessage, AIMessage
 from langchain_openai import ChatOpenAI
 from rag import RAGSystem
+
+
+def _answer_only(answer: str, question: str) -> str:
+    """回答から質問の繰り返し（質問「...」について、 等）を除去し、回答本文のみ返す"""
+    if not question or not answer:
+        return answer
+    q = question.strip()
+    # パターン1: 「質問「〇〇」について、」で始まる
+    pattern1 = re.escape(f"質問「{q}」について、")
+    if re.match(pattern1, answer):
+        return re.sub(r"^" + pattern1 + r"\s*", "", answer, count=1)
+    # パターン2: 「〇〇 質問 「〇〇」について、」
+    pattern2 = re.escape(f"{q} 質問 「{q}」について、")
+    if answer.strip().startswith(q + " 質問 "):
+        try:
+            prefix = re.match(re.escape(q) + r"\s+質問\s+「" + re.escape(q) + r"」について、\s*", answer)
+            if prefix:
+                return answer[prefix.end():]
+        except Exception:
+            pass
+    # パターン3: 回答が質問文そのもので始まっている（先頭一致）
+    if answer.startswith(q):
+        rest = answer[len(q):].lstrip()
+        if rest.startswith("質問") or rest.startswith("「") or len(rest) > 0:
+            return rest
+    return answer
+
 
 class LangGraphState:
     """LangGraphの状態定義"""
@@ -103,21 +131,22 @@ class LangGraphAgent:
 参考文書:
 {context}
 
-上記の参考文書に基づいて回答してください。引用は[1][2]の形式で示してください。""")
+上記の参考文書に基づいて回答してください。引用は[1][2]の形式で示してください。質問文の繰り返しは不要です。回答は必ず日本語で出力し、英語は使わないでください。回答のみを出力してください。""")
                 ]
                 answer = ""
                 async for chunk in self.llm.astream(messages):
                     if chunk.content:
                         answer += chunk.content
-                state.answer = answer
+                state.answer = _answer_only(answer, state.question)
             else:
-                # DEMO: テンプレート回答
-                state.answer = f"""質問「{state.question}」について、{len(state.retrieved_docs)}件の関連文書を参照しました。
+                # DEMO: テンプレート回答（日本語のみ。質問はフロントで表示するため含めない）
+                n = len(state.retrieved_docs)
+                state.answer = f"""{n}件の関連文書を参照しました。
 
-主な内容:
-{context[:200]}...
+主なトピック: 検索結果に含まれる文書の概要を参照しています。
+引用番号 [1]～[3] は右側の引用カードで確認できます。
 
-（DEMOモード: 実際のLLM回答ではありません）"""
+（DEMOモード: 実際のLLM回答ではありません。REALモードでは日本語で回答します。）"""
             
             # Citations作成
             state.citations = [
@@ -209,26 +238,24 @@ class LangGraphAgent:
 参考文書:
 {context}
 
-上記の参考文書に基づいて回答してください。引用は[1][2]の形式で示してください。""")
+上記の参考文書に基づいて回答してください。引用は[1][2]の形式で示してください。質問文の繰り返しは不要です。回答は必ず日本語で出力し、英語は使わないでください。回答のみを出力してください。""")
             ]
             answer = ""
             async for chunk in self.llm.astream(messages):
                 if chunk.content:
                     answer += chunk.content
                     yield {"type": "text", "data": chunk.content}
-            state.answer = answer
+            state.answer = _answer_only(answer, state.question)
         else:
-            # DEMO: 模擬ストリーミング（参照文書の抜粋を含める）
-            context = "\n\n".join([f"[{i+1}] {doc['text'][:200]}..." for i, doc in enumerate(state.retrieved_docs)])
-            demo_answer = f"""質問「{state.question}」について、{len(state.retrieved_docs)}件の関連文書を参照しました。
+            # DEMO: 模擬ストリーミング（日本語のみ。1チャンクで送り二重表示を防ぐ）
+            n = len(state.retrieved_docs)
+            demo_answer = f"""{n}件の関連文書を参照しました。
 
-主な内容:
-{context}
+主なトピック: 検索結果に含まれる文書の概要を参照しています。
+引用番号 [1]～[3] は右側の引用カードで確認できます。
 
-（DEMOモード: 実際のLLM回答ではありません）"""
-            for char in demo_answer:
-                yield {"type": "text", "data": char}
-                await asyncio.sleep(0.01)  # ストリーミング感
+（DEMOモード: 実際のLLM回答ではありません。REALモードでは日本語で回答します。）"""
+            yield {"type": "text", "data": demo_answer}
             state.answer = demo_answer
         
         # citations

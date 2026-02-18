@@ -19,7 +19,12 @@ export default function LoginForm() {
       setAuthToken(token)
       router.push('/')
     } catch (err) {
-      setError('ログインに失敗しました')
+      const message = err instanceof Error ? err.message : 'ログインに失敗しました'
+      if (message.includes('fetch') || message.includes('Failed to fetch') || message === 'Login failed') {
+        setError('ログインに失敗しました。API (localhost:8000) が起動しているか確認してください。')
+      } else {
+        setError(message)
+      }
     } finally {
       setLoading(false)
     }

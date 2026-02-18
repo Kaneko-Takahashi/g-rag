@@ -8,6 +8,7 @@ const inter = Inter({ subsets: ['latin'] })
 export const metadata: Metadata = {
   title: 'G-RAG',
   description: 'RAG System with LangGraph',
+  icons: { icon: '/icon.png?v=2' },
 }
 
 export default function RootLayout({

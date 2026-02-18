@@ -9,8 +9,11 @@ export async function login(passcode: string): Promise<{ token: string; user_id:
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ passcode }),
   })
-  if (!res.ok) throw new Error('Login failed')
-  const data = await res.json()
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    const msg = (data && typeof data.detail === 'string') ? data.detail : 'Login failed'
+    throw new Error(msg)
+  }
   return data
 }
 
