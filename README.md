@@ -32,17 +32,33 @@ G-RAGは、LangGraphを使ったRAGシステムの実装例です。以下の機
 
 ### 1. 依存関係インストール
 
-```bash
-# ルート
-yarn install
+**ルートで yarn（全ワークスペース）:**
 
-# API
+```bash
+yarn install
+```
+
+**API の Python 依存:**
+
+```bash
 cd apps/api
 pip install -r requirements.txt
-
-# Web（ルートから）
-yarn install:all
 ```
+
+> **Windows (PowerShell) の場合**: `&&` は使えません。上のようにコマンドを分けて実行するか、`;` でつなげてください。  
+> 例: `cd apps/api; pip install -r requirements.txt`
+
+**API で langchain 系の競合エラーが出る場合:**
+
+`langchain` / `langchain-community` / `langgraph` が別途入っているとバージョン競合することがあります。以下で競合パッケージを外してから入れ直してください。
+
+```bash
+cd apps/api
+pip uninstall langchain langchain-community langgraph -y
+pip install -r requirements.txt
+```
+
+（このプロジェクトでは `langchain-core` と `langchain-openai` のみ使用しています。）
 
 ### 2. 環境変数設定
 
@@ -157,8 +173,10 @@ python run_eval.py
 ```
 /
   apps/
+    icon.png      # アプリアイコン（PNG）
     web/          # Next.js (TypeScript)
-      app/        # App Router
+      app/        # App Router（icon.png = ファビコン）
+      public/     # 静的ファイル（icon.png）
       components/ # UIコンポーネント
       lib/        # ユーティリティ
       .dockerignore  # Dockerビルド時に node_modules を除外
@@ -180,9 +198,10 @@ python run_eval.py
 
 ## アイコン
 
-- `apps/web/app/icon.svg`: SVG形式のアイコン（32px、グラフ×検索モチーフ）
-  - Next.js 13+ App Routerでは、`app/icon.svg`が自動的にfaviconとして認識されます
-- モチーフ: 3-5ノードのグラフ + 検索アイコン（ルーペ）
+- **`apps/icon.png`**: アプリアイコン（角丸四角・青→ティールのグラデーション・白いチャット吹き出しとループパス）のマスターファイル
+- **`apps/web/public/icon.png`**: 公開用（サイドバーなどで `/icon.png` として参照）
+- **`apps/web/app/icon.png`**: Next.js App Router がファビコンとして自動認識
+- サイドバーのロゴは `components/sidebar.tsx` で `/icon.png` を参照
 
 ## データベース
 

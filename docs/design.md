@@ -34,6 +34,11 @@
 
 API のエージェントは `langgraph_agent.py` で自前実装。Python パッケージの `langgraph` は未使用。LLM 連携は `langchain-core` と `langchain-openai` のみ使用（依存関係競合を避けるため）。
 
+### Python 依存の注意（API）
+
+- `requirements.txt` には `langchain` / `langgraph` は含めず、`langchain-core` と `langchain-openai` のみ指定。
+- 既存環境に `langchain` や `langgraph` が入っているとバージョン競合することがある。その場合は `pip uninstall langchain langchain-community langgraph -y` のあと `pip install -r requirements.txt` で解消する。詳細は README の「起動方法」を参照。
+
 ### ノード構成
 1. `classify_intent`: 意図分類（キーワードベース）
 2. `retrieve`: 文書検索
@@ -58,6 +63,9 @@ API のエージェントは `langgraph_agent.py` で自前実装。Python パ�
 - Tailwind CSS + shadcn/ui
 - ダークモード対応
 - レスポンシブ（モバイル対応）
+
+### アイコン
+- アプリアイコンは PNG（`apps/icon.png`）。同一ファイルを `apps/web/public/icon.png` と `apps/web/app/icon.png` に配置し、サイドバーは `/icon.png`、ファビコンは App Router の `app/icon.png` を参照。
 
 ### 可視化
 - LangGraph実行フロー（タイムライン）

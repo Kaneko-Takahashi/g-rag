@@ -5,6 +5,7 @@ python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
 pydantic==2.5.3
 pydantic-settings==2.1.0
+# 競合を避けるため langchain / langgraph は入れず、core と openai のみ
 langchain-core>=0.3.0,<0.4
 langchain-openai>=0.2.0,<0.3
 sse-starlette==1.8.2
