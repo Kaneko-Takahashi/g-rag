@@ -50,9 +50,9 @@ jobs:
         run: yarn install --frozen-lockfile
 
       - name: Lint web
-        run: yarn workspace web lint 2>/dev/null || true
+        run: yarn workspace g-rag-web lint 2>/dev/null || true
 
       - name: Build web
         env:
           NEXT_PUBLIC_API_URL: http://localhost:8000
-        run: yarn workspace web build
+        run: yarn workspace g-rag-web build
